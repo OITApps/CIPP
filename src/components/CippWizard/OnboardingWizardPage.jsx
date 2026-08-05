@@ -10,6 +10,7 @@ import { CippAlertsStep } from './CippAlertsStep.jsx'
 import { CippAddTenantTypeSelection } from './CippAddTenantTypeSelection.jsx'
 import { CippDirectTenantDeploy } from './CippDirectTenantDeploy.jsx'
 import { CippGDAPTenantSetup } from './CippGDAPTenantSetup.jsx'
+import { CippIndirectResellerLink } from './CippIndirectResellerLink.jsx'
 import { CippGDAPTenantOnboarding } from './CippGDAPTenantOnboarding.jsx'
 import { BuildingOfficeIcon, CloudIcon, CpuChipIcon } from '@heroicons/react/24/outline'
 import { useRouter } from 'next/router'
@@ -20,6 +21,9 @@ const OnboardingWizardPage = () => {
   const deepLinkedOption = Array.isArray(selectedOptionQuery)
     ? selectedOptionQuery[0]
     : selectedOptionQuery
+
+  const tenantTypeQuery = router.query?.tenantType
+  const deepLinkedTenantType = Array.isArray(tenantTypeQuery) ? tenantTypeQuery[0] : tenantTypeQuery
 
   const setupOptions = [
     {
@@ -61,6 +65,13 @@ const OnboardingWizardPage = () => {
     typeof deepLinkedOption === 'string' &&
     setupOptions.some((option) => option.value === deepLinkedOption)
 
+  // A deep link that already names the tenant type skips the type selection and lands the user
+  // straight on that type's step, e.g. re-authenticating a direct tenant from the tenants list.
+  const hasDeepLinkedTenantType =
+    hasDeepLinkedOption &&
+    deepLinkedOption === 'AddTenant' &&
+    ['GDAP', 'Direct', 'IndirectReseller'].includes(deepLinkedTenantType)
+
   const steps = [
     {
       description: 'Onboarding',
@@ -89,7 +100,7 @@ const OnboardingWizardPage = () => {
     {
       description: 'Tenant Type',
       component: CippAddTenantTypeSelection,
-      showStepWhen: (values) => values?.selectedOption === 'AddTenant',
+      showStepWhen: (values) => values?.selectedOption === 'AddTenant' && !hasDeepLinkedTenantType,
     },
     {
       description: 'Direct Tenant',
@@ -102,6 +113,12 @@ const OnboardingWizardPage = () => {
       component: CippGDAPTenantSetup,
       showStepWhen: (values) =>
         values?.selectedOption === 'AddTenant' && values?.tenantType === 'GDAP',
+    },
+    {
+      description: 'Reseller Link',
+      component: CippIndirectResellerLink,
+      showStepWhen: (values) =>
+        values?.selectedOption === 'AddTenant' && values?.tenantType === 'IndirectReseller',
     },
     {
       description: 'GDAP Onboarding',
@@ -148,7 +165,14 @@ const OnboardingWizardPage = () => {
       steps={steps}
       wizardTitle="Setup Wizard"
       postUrl="/api/ExecCombinedSetup"
-      initialState={hasDeepLinkedOption ? { selectedOption: deepLinkedOption } : undefined}
+      initialState={
+        hasDeepLinkedOption
+          ? {
+              selectedOption: deepLinkedOption,
+              ...(hasDeepLinkedTenantType && { tenantType: deepLinkedTenantType }),
+            }
+          : undefined
+      }
     />
   )
 }

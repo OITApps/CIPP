@@ -1,30 +1,15 @@
 import PropTypes from "prop-types";
 import { CippAutoComplete } from "../CippComponents/CippAutocomplete";
 import { ApiGetCall } from "../../api/ApiCall";
-import { IconButton, SvgIcon, Tooltip, Box } from "@mui/material";
-import {
-  FilePresent,
-  Laptop,
-  Mail,
-  Refresh,
-  Share,
-  Shield,
-  ShieldMoon,
-  PrecisionManufacturing,
-  BarChart,
-} from "@mui/icons-material";
-import {
-  BuildingOfficeIcon,
-  GlobeAltIcon,
-  ServerIcon,
-  UsersIcon,
-} from "@heroicons/react/24/outline";
+import { IconButton, Tooltip, Box } from "@mui/material";
+import { Refresh } from "@mui/icons-material";
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/router";
 import { CippOffCanvas } from "./CippOffCanvas";
 import { useSettings } from "../../hooks/use-settings";
 import { getCippError } from "../../utils/get-cipp-error";
 import { useQueryClient } from "@tanstack/react-query";
+import { getIconByName } from "../../utils/icon-registry";
 
 export const CippTenantSelector = React.forwardRef((props, ref) => {
   const { width, allTenants = false, multiple = false, refreshButton, tenantButton } = props;
@@ -65,68 +50,73 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
         key: "M365_Portal",
         label: "M365 Admin Portal",
         link: `https://admin.cloud.microsoft/?delegatedOrg=${currentTenant?.addedFields?.initialDomainName}`,
-        icon: <GlobeAltIcon />,
+        icon: "Public",
       },
       {
         key: "Exchange_Portal",
         label: "Exchange Portal",
         link: `https://admin.cloud.microsoft/exchange?delegatedOrg=${currentTenant?.addedFields?.initialDomainName}`,
-        icon: <Mail />,
+        icon: "Mail",
       },
       {
         key: "Entra_Portal",
         label: "Entra Portal",
         link: `https://entra.microsoft.com/${currentTenant?.value}`,
-        icon: <UsersIcon />,
+        icon: "Groups",
       },
       {
         key: "Teams_Portal",
         label: "Teams Portal",
         link: `https://admin.teams.microsoft.com/?delegatedOrg=${currentTenant?.addedFields?.initialDomainName}`,
-        icon: <FilePresent />,
+        icon: "FilePresent",
       },
       {
         key: "Azure_Portal",
         label: "Azure Portal",
         link: `https://portal.azure.com/${currentTenant?.value}`,
-        icon: <ServerIcon />,
+        icon: "Dns",
       },
       {
         key: "Intune_Portal",
         label: "Intune Portal",
         link: `https://intune.microsoft.com/${currentTenant?.value}`,
-        icon: <Laptop />,
+        icon: "Laptop",
       },
       {
         key: "SharePoint_Admin",
         label: "SharePoint Portal",
-        link: `/api/ListSharePointAdminUrl?tenantFilter=${currentTenant?.value}`,
-        icon: <Share />,
+        // The only portal whose host cannot be derived from the tenant - it has to be resolved
+        // through Graph. Use the URL the backend already resolved when it has one; otherwise fall
+        // back to the endpoint that resolves it and redirects.
+        link:
+          currentTenant?.addedFields?.sharepointAdminUrl ||
+          `/api/ListSharePointAdminUrl?tenantFilter=${currentTenant?.value}`,
+        icon: "Share",
         external: true,
       },
       {
         key: "Security_Portal",
         label: "Security Portal",
         link: `https://security.microsoft.com/?tid=${currentTenant?.addedFields?.customerId}`,
-        icon: <Shield />,
+        icon: "Shield",
       },
       {
         key: "Compliance_Portal",
-        label: "Compliance Portal",
+        label: "Purview Portal",
         link: `https://purview.microsoft.com/?tid=${currentTenant?.addedFields?.customerId}`,
-        icon: <ShieldMoon />,
+        icon: "ShieldMoon",
       },
       {
         key: "Power_Platform_Portal",
         label: "Power Platform Portal",
         link: `https://admin.powerplatform.microsoft.com/account/login/${currentTenant?.addedFields?.customerId}`,
-        icon: <PrecisionManufacturing />,
+        icon: "PrecisionManufacturing",
       },
       {
         key: "Power_BI_Portal",
         label: "Power BI Portal",
         link: `https://app.powerbi.com/admin-portal?ctid=${currentTenant?.addedFields?.customerId}`,
-        icon: <BarChart />,
+        icon: "BarChart",
       },
     ];
 
@@ -164,7 +154,7 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
       key: "Manage_Tenant",
       label: "Manage Tenant",
       link: `/tenant/manage/edit?tenantFilter=${currentTenant?.value}`,
-      icon: <BuildingOfficeIcon />,
+      icon: "Business",
     });
 
     return filteredActions;
@@ -200,6 +190,7 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
 
   // This effect handles when the URL parameter changes (from deep link or user selection)
   // This is the single source of truth for tenant changes
+  // Supports external hotlinks using customerId (GUID) or initialDomainName in addition to defaultDomainName
   useEffect(() => {
     if (!router.isReady || !tenantList.isSuccess) return;
 
@@ -207,30 +198,49 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
 
     // Only process if we have a URL tenant
     if (urlTenant) {
-      // Find the tenant in our list
-      const matchingTenant = tenantList.data.find(
-        ({ defaultDomainName }) => defaultDomainName === urlTenant
-      );
+      // Find the tenant in our list - try defaultDomainName first, then customerId and initialDomainName
+      const matchingTenant =
+        tenantList.data.find(
+          ({ defaultDomainName }) => defaultDomainName === urlTenant
+        ) ||
+        tenantList.data.find(({ customerId }) => customerId === urlTenant) ||
+        tenantList.data.find(
+          ({ initialDomainName }) => initialDomainName === urlTenant
+        );
 
       if (matchingTenant) {
+        const resolvedDomain = matchingTenant.defaultDomainName;
+
+        // If the URL used a non-default identifier, normalize the URL to use defaultDomainName
+        if (urlTenant !== resolvedDomain) {
+          const query = { ...router.query, tenantFilter: resolvedDomain };
+          router.replace(
+            { pathname: router.pathname, query },
+            undefined,
+            { shallow: true }
+          );
+          return; // The replace will re-trigger this effect with the normalized value
+        }
+
         // Update local state if different
-        if (!currentTenant || urlTenant !== currentTenant.value) {
+        if (!currentTenant || resolvedDomain !== currentTenant.value) {
           setSelectedTenant({
-            value: urlTenant,
-            label: `${matchingTenant.displayName} (${urlTenant})`,
+            value: resolvedDomain,
+            label: `${matchingTenant.displayName} (${resolvedDomain})`,
             addedFields: {
               defaultDomainName: matchingTenant.defaultDomainName,
               displayName: matchingTenant.displayName,
               customerId: matchingTenant.customerId,
               initialDomainName: matchingTenant.initialDomainName,
+              sharepointAdminUrl: matchingTenant.SharepointAdminUrl,
             },
           });
         }
 
         // Update settings if different (null filter in settings-context prevents saving null)
-        if (settings.currentTenant !== urlTenant) {
+        if (settings.currentTenant !== resolvedDomain) {
           settings.handleUpdate({
-            currentTenant: urlTenant,
+            currentTenant: resolvedDomain,
           });
         }
       }
@@ -264,19 +274,26 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
   // We can simplify this effect since we now have the new effect above to handle URL changes
   useEffect(() => {
     if (tenant && tenantList.isSuccess && !currentTenant) {
-      const matchingTenant = tenantList.data.find(
-        ({ defaultDomainName }) => defaultDomainName === tenant
-      );
+      const matchingTenant =
+        tenantList.data.find(
+          ({ defaultDomainName }) => defaultDomainName === tenant
+        ) ||
+        tenantList.data.find(({ customerId }) => customerId === tenant) ||
+        tenantList.data.find(
+          ({ initialDomainName }) => initialDomainName === tenant
+        );
+      const resolvedDomain = matchingTenant?.defaultDomainName;
       setSelectedTenant(
         matchingTenant
           ? {
-              value: tenant,
-              label: `${matchingTenant.displayName} (${tenant})`,
+              value: resolvedDomain,
+              label: `${matchingTenant.displayName} (${resolvedDomain})`,
               addedFields: {
                 defaultDomainName: matchingTenant.defaultDomainName,
                 displayName: matchingTenant.displayName,
                 customerId: matchingTenant.customerId,
                 initialDomainName: matchingTenant.initialDomainName,
+                sharepointAdminUrl: matchingTenant.SharepointAdminUrl,
               },
             }
           : {
@@ -318,9 +335,7 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
             disabled={!currentTenant || currentTenant.value === "AllTenants"}
           >
             <Tooltip title="Show Tenant Information">
-              <SvgIcon>
-                <BuildingOfficeIcon fontSize="inherit" />
-              </SvgIcon>
+              {getIconByName("Business")}
             </Tooltip>
           </IconButton>
         )}
@@ -343,16 +358,25 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
           onChange={(nv) => setSelectedTenant(nv)}
           options={
             tenantList.isSuccess && tenantList.data && tenantList.data.length > 0
-              ? tenantList.data.map(({ customerId, displayName, defaultDomainName, initialDomainName }) => ({
-                  value: defaultDomainName,
-                  label: `${displayName} (${defaultDomainName})`,
-                  addedFields: {
-                    defaultDomainName: defaultDomainName,
-                    displayName: displayName,
-                    customerId: customerId,
-                    initialDomainName: initialDomainName,
-                  },
-                }))
+              ? tenantList.data.map(
+                  ({
+                    customerId,
+                    displayName,
+                    defaultDomainName,
+                    initialDomainName,
+                    SharepointAdminUrl,
+                  }) => ({
+                    value: defaultDomainName,
+                    label: `${displayName} (${defaultDomainName})`,
+                    addedFields: {
+                      defaultDomainName: defaultDomainName,
+                      displayName: displayName,
+                      customerId: customerId,
+                      initialDomainName: initialDomainName,
+                      sharepointAdminUrl: SharepointAdminUrl,
+                    },
+                  })
+                )
               : []
           }
           getOptionLabel={(option) => option?.label || ""}
@@ -371,9 +395,7 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
             }}
           >
             <Tooltip title="Refresh tenant list">
-              <SvgIcon>
-                <Refresh fontSize="inherit" />
-              </SvgIcon>
+              <Refresh />
             </Tooltip>
           </IconButton>
         )}

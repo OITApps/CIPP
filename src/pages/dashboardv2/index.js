@@ -28,6 +28,7 @@ import { LicenseCard } from '../../components/CippComponents/LicenseCard'
 import { TenantInfoCard } from '../../components/CippComponents/TenantInfoCard'
 import { TenantMetricsGrid } from '../../components/CippComponents/TenantMetricsGrid'
 import { AssessmentCard } from '../../components/CippComponents/AssessmentCard'
+import { AlertsOverviewCard } from '../../components/CippComponents/AlertsOverviewCard'
 import { CippReportToolbar } from '../../components/CippComponents/CippReportToolbar'
 import { Assessment as AssessmentIcon } from '@mui/icons-material'
 import ChevronDownIcon from '@heroicons/react/24/outline/ChevronDownIcon'
@@ -40,10 +41,16 @@ const Page = () => {
   const [portalMenuItems, setPortalMenuItems] = useState([])
   const isWide = useMediaQuery('(min-width:1513px)')
   const [reportsMenuAnchor, setReportsMenuAnchor] = useState(null)
-  // Get reportId from query params or default to "ztna"
+  // Get reportId from query params or default to the user's preferred suite (Preferences page)
   // Only use default if router is ready and reportId is still not present
+  const defaultReportId =
+    settings.UserSpecificSettings?.defaultTestSuite?.value ||
+    settings.defaultTestSuite?.value ||
+    'ztna'
   const selectedReport =
-    router.isReady && !router.query.reportId ? 'ztna' : router.query.reportId || 'ztna'
+    router.isReady && !router.query.reportId
+      ? defaultReportId
+      : router.query.reportId || defaultReportId
 
   // Fetch available reports (shared cache with CippReportToolbar)
   const reportsApi = ApiGetCall({
@@ -168,7 +175,12 @@ const Page = () => {
       const menuItems = filteredPortals.map((portal) => ({
         label: portal.label,
         target: '_blank',
-        link: portal.url.replace(portal.variable, tenantLookup?.[portal.variable]),
+        // A portal with a `field` has a URL the backend resolved for us (SharePoint's host cannot be
+        // derived from the tenant). Use it when it's there, otherwise fall back to the templated URL.
+        link:
+          portal.field && tenantLookup?.[portal.field]
+            ? tenantLookup[portal.field]
+            : portal.url.replace(portal.variable, tenantLookup?.[portal.variable]),
         icon: portal.icon,
       }))
       setPortalMenuItems(menuItems)
@@ -194,8 +206,12 @@ const Page = () => {
       <Box sx={{ width: '100%', mx: 'auto' }}>
         <Grid container spacing={2} alignItems="center" sx={{ mb: 2 }}>
           <Grid size={{ xs: 12, md: 4 }}>
-            <Box sx={{ display: 'flex', alignItems: 'stretch', gap: 1.5}}>
+            <Box
+              data-tutorial="dashboard-toolbar"
+              sx={{ display: 'flex', alignItems: 'stretch', gap: 1.5 }}
+            >
               <Box
+                data-tutorial="dashboard-portals"
                 sx={{
                   flex: '0.7 1 0',
                   minWidth: 0,
@@ -311,7 +327,7 @@ const Page = () => {
               )}
             </Box>
           </Grid>
-          <Grid size={{ xs: 12, md: 8 }}>
+          <Grid size={{ xs: 12, md: 8 }} data-tutorial="dashboard-test-suite">
             <CippReportToolbar />
           </Grid>
         </Grid>
@@ -319,12 +335,12 @@ const Page = () => {
         {/* Tenant Overview Section - 3 Column Layout */}
         <Grid container spacing={2} sx={{ mb: 2 }}>
           {/* Column 1: Tenant Information */}
-          <Grid size={{ xs: 12, lg: 4 }}>
+          <Grid size={{ xs: 12, lg: 4 }} data-tutorial="dashboard-tenant-info">
             <TenantInfoCard data={organizationRecord} isLoading={organization.isFetching} />
           </Grid>
 
           {/* Column 2: Tenant Metrics - 2x3 Grid */}
-          <Grid size={{ xs: 12, lg: 4 }}>
+          <Grid size={{ xs: 12, lg: 4 }} data-tutorial="dashboard-tenant-metrics">
             <TenantMetricsGrid
               data={reportData.TenantInfo.TenantOverview}
               isLoading={testsApi.isFetching}
@@ -332,7 +348,7 @@ const Page = () => {
           </Grid>
 
           {/* Column 3: Assessment Results */}
-          <Grid size={{ xs: 12, lg: 4 }}>
+          <Grid size={{ xs: 12, lg: 4 }} data-tutorial="dashboard-assessment">
             <AssessmentCard
               data={reportData}
               isLoading={testsApi.isFetching}
@@ -342,20 +358,25 @@ const Page = () => {
           </Grid>
         </Grid>
 
+        {/* Alerts Section - Full Width */}
+        <Box sx={{ mb: 2 }} data-tutorial="dashboard-alerts">
+          <AlertsOverviewCard tenantFilter={currentTenant} />
+        </Box>
+
         {/* Identity Section - 2 Column Grid */}
         <Box>
           <Grid container spacing={2}>
             {/* Left Column */}
             <Grid size={{ xs: 12, lg: 6 }}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
-                <Box sx={{ height: 450 }}>
+                <Box sx={{ height: 450 }} data-tutorial="dashboard-secure-score">
                   <SecureScoreCard
                     data={testsApi.data?.SecureScore}
                     isLoading={testsApi.isFetching}
                     sx={{ height: '100%' }}
                   />
                 </Box>
-                <Box sx={{ height: 450 }}>
+                <Box sx={{ height: 450 }} data-tutorial="dashboard-auth-methods">
                   <AuthMethodCard
                     data={testsApi.data?.MFAState}
                     isLoading={testsApi.isFetching}
@@ -368,14 +389,14 @@ const Page = () => {
             {/* Right Column */}
             <Grid size={{ xs: 12, lg: 6 }}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
-                <Box sx={{ height: 450 }}>
+                <Box sx={{ height: 450 }} data-tutorial="dashboard-mfa">
                   <MFACard
                     data={testsApi.data?.MFAState}
                     isLoading={testsApi.isFetching}
                     sx={{ height: '100%' }}
                   />
                 </Box>
-                <Box sx={{ height: 450 }}>
+                <Box sx={{ height: 450 }} data-tutorial="dashboard-licenses">
                   <LicenseCard
                     data={testsApi.data?.LicenseData}
                     isLoading={testsApi.isFetching}
